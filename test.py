@@ -24,7 +24,8 @@ class TestDependencyVisualizer(unittest.TestCase):
                 load_config("nonexistent_config.toml")
 
     def test_generate_complex_plantuml_script(self):
-        script = generate_complex_plantuml_script("SamplePackage", num_levels=2, max_dependencies_per_level=2)
+        script = generate_complex_plantuml_script("SamplePackage", num_levels=3, max_dependencies_per_level=2)
+        self.assertIn('"SamplePackage_Dependency0_Sub1" --> "SamplePackage_Dependency0_Sub2"', script)
         self.assertIn('package SamplePackage {', script)
         self.assertIn('"SamplePackage" --> "SamplePackage_Dependency0"', script)
         self.assertIn('"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub1"', script)
@@ -38,3 +39,31 @@ class TestDependencyVisualizer(unittest.TestCase):
         handle = mock_open()
         handle.write.assert_called_once_with(script)
 
+
+@patch("subprocess.run")
+def test_generate_graph(self, mock_subprocess):
+    mock_subprocess.return_value = MagicMock(returncode=0)
+    plantuml_path = "C://Users//Anastasia//Downloads//plantuml-1.2024.8.jar"
+    script_path = "generate_img.puml"
+    output_image_path = "graph_dependencies.png"
+
+    generate_graph(plantuml_path, script_path, output_image_path)
+    mock_subprocess.assert_called_once_with([
+        "java", "-jar", plantuml_path,
+        "-tpng", script_path,
+        "-o", os.path.dirname(output_image_path)
+    ], capture_output=True, text=True, check=True)
+
+
+@patch("subprocess.run")
+def test_generate_graph_with_error(self, mock_subprocess):
+    # Симулируем ошибку при генерации графа
+    mock_subprocess.side_effect = subprocess.CalledProcessError(1, "java -jar")
+
+    with self.assertRaises(RuntimeError):
+        generate_graph("C://Users//Anastasia//Downloads//plantuml-1.2024.8.jar", "generate_img.puml",
+                       "graph_dependencies.png")
+
+
+if __name__ == "__main__":
+    unittest.main()
