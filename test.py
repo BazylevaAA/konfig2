@@ -1,9 +1,9 @@
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, mock_open, MagicMock
 import os
 import subprocess
-from main import load_config, generate_complex_plantuml_script, save_plantuml_script, generate_graph
 
+from main import load_config, generate_complex_plantuml_script, save_plantuml_script, generate_graph
 
 class TestDependencyVisualizer(unittest.TestCase):
 
@@ -32,15 +32,19 @@ class TestDependencyVisualizer(unittest.TestCase):
         self.assertIn('"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub2"', script)
 
     # Тест для сохранения скрипта PlantUML в файл
-    @patch("builtins.open", new_callable=MagicMock)
+    @patch("builtins.open", new_callable=mock_open)
     def test_save_plantuml_script(self, mock_open):
         script = "@startuml\npackage SamplePackage { ... }\n@enduml"
-        save_plantuml_script(script, "generate_img.puml")
-        mock_open.assert_called_once_with("generate_img.puml", "w")
-        handle = mock_open.return_value
-        print(f"Mocked file handle: {handle}")
-        handle.write.assert_called_once()
-        handle.write.assert_called_with(script)
+        script_path = "generate_img.puml"
+
+        # Вызов метода save_plantuml_script
+        save_plantuml_script(script, script_path)
+
+        # Проверяем, что open был вызван с нужным путем и режимом
+        mock_open.assert_called_once_with(script_path, "w")
+
+        # Проверяем, что метод write был вызван с правильными параметрами
+        mock_open().write.assert_called_once_with(script)
 
     # Тест для генерации графа с использованием subprocess
     @patch("subprocess.run")
@@ -66,7 +70,6 @@ class TestDependencyVisualizer(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             generate_graph("C://Users//Anastasia//Downloads//plantuml-1.2024.8.jar", "generate_img.puml",
                            "graph_dependencies.png")
-
 
 if __name__ == "__main__":
     unittest.main()
