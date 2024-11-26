@@ -1,0 +1,19 @@
+@startuml
+package SamplePackage {
+"SamplePackage" --> "SamplePackage_Dependency0"
+"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub1"
+"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub2"
+"SamplePackage_Dependency0_Sub1" --> "SamplePackage_Dependency0_Sub1_Sub1"
+"SamplePackage_Dependency0_Sub1" --> "SamplePackage_Dependency0_Sub1_Sub2"
+"SamplePackage_Dependency0_Sub2" --> "SamplePackage_Dependency0_Sub2_Sub1"
+"SamplePackage_Dependency0_Sub2" --> "SamplePackage_Dependency0_Sub2_Sub2"
+"SamplePackage_Dependency0_Sub1_Sub1" --> "SamplePackage_Dependency0_Sub1_Sub1_Sub1"
+"SamplePackage_Dependency0_Sub1_Sub1" --> "SamplePackage_Dependency0_Sub1_Sub1_Sub2"
+"SamplePackage_Dependency0_Sub1_Sub2" --> "SamplePackage_Dependency0_Sub1_Sub2_Sub1"
+"SamplePackage_Dependency0_Sub1_Sub2" --> "SamplePackage_Dependency0_Sub1_Sub2_Sub2"
+"SamplePackage_Dependency0_Sub2_Sub1" --> "SamplePackage_Dependency0_Sub2_Sub1_Sub1"
+"SamplePackage_Dependency0_Sub2_Sub1" --> "SamplePackage_Dependency0_Sub2_Sub1_Sub2"
+"SamplePackage_Dependency0_Sub2_Sub2" --> "SamplePackage_Dependency0_Sub2_Sub2_Sub1"
+"SamplePackage_Dependency0_Sub2_Sub2" --> "SamplePackage_Dependency0_Sub2_Sub2_Sub2"
+}
+@enduml
