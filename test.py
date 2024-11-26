@@ -31,7 +31,7 @@ class TestDependencyVisualizer(unittest.TestCase):
         self.assertIn('"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub1"', script)
         self.assertIn('"SamplePackage_Dependency0_Sub1" --> "SamplePackage_Dependency0_Sub2"', script)
 
-    @patch("main.open", new_callable=MagicMock)
+    @patch("builtins.open", new_callable=MagicMock)
     def test_save_plantuml_script(self, mock_open):
         script = "@startuml\npackage SamplePackage { ... }\n@enduml"
         save_plantuml_script(script, "generate_img.puml")
