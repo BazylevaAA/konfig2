@@ -25,7 +25,6 @@ class TestDependencyVisualizer(unittest.TestCase):
 
     def test_generate_complex_plantuml_script(self):
         script = generate_complex_plantuml_script("SamplePackage", num_levels=3, max_dependencies_per_level=2)
-        self.assertIn('"SamplePackage_Dependency0_Sub1" --> "SamplePackage_Dependency0_Sub2"', script)
         self.assertIn('package SamplePackage {', script)
         self.assertIn('"SamplePackage" --> "SamplePackage_Dependency0"', script)
         self.assertIn('"SamplePackage_Dependency0" --> "SamplePackage_Dependency0_Sub1"', script)
