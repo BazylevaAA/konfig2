@@ -1,91 +1,157 @@
+import requests
 import os
-import subprocess
+import argparse
+import xml.etree.ElementTree as ET
+import zipfile
 import toml
-from graph_generator import get_package_dependencies, generate_complex_plantuml_script, save_plantuml_script
 
 
-def load_config(config_path):
-    """Загружает конфигурационный файл TOML."""
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"Файл конфигурации {config_path} не найден.")
+def download_file(url, save_path):
+    if os.path.exists(save_path):
+        print(f"Файл {save_path} уже существует. Пропуск скачивания.")
+        return
 
     try:
-        with open(config_path, "r") as file:
-            config = toml.load(file)
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(save_path, 'wb') as file:
+            for chunk in response.iter_content(chunk_size=8192):
+                file.write(chunk)
+        print(f"Файл успешно скачан и сохранен в: {save_path}")
+    except requests.exceptions.HTTPError as err:
+        print(f"HTTP error occurred: {err}")
+    except requests.exceptions.RequestException as err:
+        print(f"Ошибка при запросе: {err}")
+    except Exception as err:
+        print(f"Произошла ошибка: {err}")
 
-        # Проверка наличия необходимых параметров в конфигурации
-        required_keys = ["visualizer_path", "package_name", "output_path"]
-        missing_keys = [key for key in required_keys if key not in config]
-        if missing_keys:
-            raise RuntimeError(f"Отсутствуют обязательные параметры в конфигурации: {', '.join(missing_keys)}")
+def get_dependencies(package_name, package_version, depth=0, max_depth=1, all_dependencies=None, package_details=None):
+    if all_dependencies is None:
+        all_dependencies = {}
+    if package_details is None:
+        package_details = {}
+    if depth > max_depth:
+        return all_dependencies, package_details
 
-        return config
-    except Exception as e:
-        raise RuntimeError(f"Ошибка загрузки конфигурации: {e}")
+    url = f"https://www.nuget.org/api/v2/package/{package_name}/{package_version}"
+    save_directory = r"C:/Users/Anastasia/PycharmProjects/konfig2"
+    save_file_path = os.path.join(save_directory, f"{package_name}.{package_version}.nupkg")
+    download_file(url, save_file_path)
 
+    nupkg_path = save_file_path
+    if not os.path.exists(nupkg_path):
+        print(f"{nupkg_path} не найден.")
+        return all_dependencies, package_details
 
-def generate_graph(plantuml_path, script_path, output_image_path):
-    """Генерирует граф на основе PlantUML-скрипта."""
     try:
-        command = [
-            "java", "-jar", plantuml_path,
-            "-tpng", script_path,
-            "-o", os.path.dirname(output_image_path)
-        ]
-        result = subprocess.run(command, capture_output=True, text=True, check=True)
+        with zipfile.ZipFile(nupkg_path, 'r') as zip_ref:
+            nuspec_file = [f for f in zip_ref.namelist() if f.endswith('.nuspec')]
+            if nuspec_file:
+                with zip_ref.open(nuspec_file[0]) as file:
+                    tree = ET.parse(file)
+                    root = tree.getroot()
+                    namespaces = {'ns': 'http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd'}
 
-        if result.returncode != 0:
-            raise RuntimeError("Ошибка генерации PNG-файла.")
+                    # Получение версии и автора
+                    metadata = root.find("ns:metadata", namespaces)
+                    if metadata is not None:
+                        version = metadata.find("ns:version", namespaces).text if metadata.find("ns:version", namespaces) is not None else "Unknown"
+                        authors = metadata.find("ns:authors", namespaces).text if metadata.find("ns:authors", namespaces) is not None else "Unknown"
+                    else:
+                        version = "Unknown"
+                        authors = "Unknown"
+
+                    # Сохранение информации о пакете
+                    package_details[f"{package_name}.{package_version}"] = {
+                        "name": package_name,
+                        "version": version,
+                        "author": authors
+                    }
+
+                    # Парсинг зависимостей
+                    dependencies_set = set()
+                    for dependency in root.findall(".//ns:dependency", namespaces):
+                        dep_id = dependency.get('id')
+                        dep_version = dependency.get('version')
+                        if dep_id and dep_version:
+                            dep_package = f"{dep_id}.{dep_version}"
+                            dependencies_set.add(dep_package)
+                            if dep_package not in all_dependencies:
+                                all_dependencies[dep_package] = set()
+                                get_dependencies(dep_id, dep_version, depth + 1, max_depth, all_dependencies, package_details)
+                    all_dependencies[f"{package_name}.{package_version}"] = dependencies_set
     except Exception as e:
-        raise RuntimeError(f"Ошибка при генерации графа: {e}")
+        print(f"Ошибка при обработке {package_name}.{package_version}: {e}")
+
+    return all_dependencies, package_details
+
+def build_plantuml_graph(dependencies, package_details):
+    graph = "@startuml\n"
+    graph += "skinparam linetype ortho\n"
+
+    for package_name_version, deps in dependencies.items():
+        details = package_details.get(package_name_version, {})
+        package_name = details.get("name", "Unknown")
+        package_author = details.get("author", "Unknown")
+        package_version = details.get("version", "Unknown")
+
+        # Создание узла пакета
+        graph += f"package \"{package_name} ({package_version})\" as {package_name_version} {{}}\n"
+
+        # Добавление заметки с автором
+        graph += f"note right of {package_name_version}\n"
+        graph += f"Author: {package_author}\n"
+        graph += f"Version: {package_version}\n"
+        graph += "end note\n"
+
+        # Добавление зависимостей
+        for dep in deps:
+            graph += f"{package_name_version} --> {dep}\n"
+
+    graph += "@enduml"
+    return graph
+
+def save_graph(graph_content, output_path):
+    with open(output_path, "w") as f:
+        f.write(graph_content)
+    print(f"Граф зависимостей сохранен в {output_path}")
+
+
+def generate_image(plantuml_path, input_path, output_path):
+    os.system(f"java -jar {plantuml_path} -tpng {input_path} -o .")
+    print(f"Изображение графа сохранено в {output_path}")
+
+
+def read_config(tool):
+    with open(tool, "r", encoding="utf-8") as f:
+        config = toml.load(f)
+    return config
+
+def print_dependencies(dependencies):
+    print("Список зависимостей:")
+    for package, deps in dependencies.items():
+        print(f"{package}:")
+        for dep in deps:
+            print(f"  - {dep}")
 
 
 def main():
-    """Главная функция."""
-    config_path = "config.toml"
-    try:
-        config = load_config(config_path)
-    except RuntimeError as e:
-        print(e)
-        return
+    parser = argparse.ArgumentParser(description="Визуализация зависимостей .NET пакетов с использованием PlantUML.")
+    parser.add_argument("tool", help="Путь к конфигурационному файлу TOML")
+    args = parser.parse_args()
+    config = read_config(args.tool)
+    plantuml_path = config["visualization"]["plantuml_path"]
+    output_graph_path = config["output"]["graph_path"]
+    package_name = "Newtonsoft.Json.Bson"
+    package_version = "1.0.3"
+    print(f"Package name: {package_name}, Package version: {package_version}")
 
-    plantuml_path = config.get("visualizer_path")
-    package_name = config.get("package_name")
-    output_image_path = config.get("output_path")
+    all_dependencies, package_details = get_dependencies(package_name, package_version)
+    print_dependencies(all_dependencies)
 
-    if not all([plantuml_path, package_name, output_image_path]):
-        print("Некорректный формат конфигурационного файла.")
-        return
-
-    # Проверка существования plantuml_path
-    if not os.path.exists(plantuml_path):
-        print(f"Ошибка: файл {plantuml_path} не найден.")
-        return
-
-    print("Получение зависимостей пакета...")
-    dependencies = get_package_dependencies(package_name)
-    if dependencies is None:
-        print("Не удалось получить зависимости.")
-        return
-
-    print("Генерация графа зависимостей...")
-    plantuml_script = generate_complex_plantuml_script(package_name, dependencies)
-
-    script_path = "generate_img.puml"  # Можно сделать путь динамическим
-    try:
-        save_plantuml_script(plantuml_script, script_path)
-    except RuntimeError as e:
-        print(f"Ошибка сохранения скрипта PlantUML: {e}")
-        return
-
-    print("Визуализация графа...")
-    try:
-        generate_graph(plantuml_path, script_path, output_image_path)
-    except RuntimeError as e:
-        print(f"Ошибка при генерации графа: {e}")
-        return
-
-    print("Граф зависимостей успешно сгенерирован!")
+    plantuml_graph = build_plantuml_graph(all_dependencies, package_details)
+    save_graph(plantuml_graph, output_graph_path)
+    generate_image(plantuml_path, output_graph_path, output_graph_path.replace(".puml", ".png"))
 
 
 if __name__ == "__main__":
