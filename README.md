@@ -61,7 +61,7 @@
 
 2. **Запуск программы**:
    ```bash
-   python main.py
+   python main.py tool.toml
    ```
 
 ---
