@@ -3,45 +3,58 @@ import os
 import argparse
 import xml.etree.ElementTree as ET
 import zipfile
-import toml
-
+import subprocess
 
 def download_file(url, save_path):
     if os.path.exists(save_path):
         print(f"Файл {save_path} уже существует. Пропуск скачивания.")
-        return
+        return save_path  # Возвращаем путь, если файл существует
 
     try:
         response = requests.get(url, stream=True)
-        response.raise_for_status()
+        if response.status_code != 200:
+            print(f"Ошибка при скачивании: {response.status_code}. Ответ: {response.text[:200]}...")  # Логируем начало ответа
+            return None
+        response.raise_for_status()  # Raise HTTPError for bad responses (4xx or 5xx)
         with open(save_path, 'wb') as file:
-            for chunk in response.iter_content(chunk_size=8192):
+            for chunk in response.iter_content(chunk_size=8192):  # Chunking for efficient download
                 file.write(chunk)
         print(f"Файл успешно скачан и сохранен в: {save_path}")
+
+        # Проверка на валидность ZIP файла
+        if not zipfile.is_zipfile(save_path):
+            print(f"Ошибка: файл {save_path} не является архивом ZIP.")
+            with open(save_path, 'r', encoding='utf-8') as f:
+                print(f"Содержимое файла {save_path}:")
+                print(f.read())  # Логируем содержимое файла, если это текстовый файл
+            return None  # Возвращаем None, чтобы дальнейшая обработка не продолжалась
     except requests.exceptions.HTTPError as err:
         print(f"HTTP error occurred: {err}")
     except requests.exceptions.RequestException as err:
-        print(f"Ошибка при запросе: {err}")
+        print(f"Ошибка при запросе: {err}")  # More specific exception handling
     except Exception as err:
         print(f"Произошла ошибка: {err}")
 
-def get_dependencies(package_name, package_version, depth=0, max_depth=1, all_dependencies=None, package_details=None):
+    return save_path
+
+
+def get_dependencies(package_name, package_version, depth=0, max_depth=1, all_dependencies=None):
     if all_dependencies is None:
         all_dependencies = {}
-    if package_details is None:
-        package_details = {}
-    if depth > max_depth:
-        return all_dependencies, package_details
 
-    url = f"https://www.nuget.org/api/v2/package/{package_name}/{package_version}"
+    if depth > max_depth:
+        return all_dependencies
+
+    url = f"https://www.nuget.org/api/v2/package/{package_name}/{package_version}"  # URL для получения пакета
     save_directory = r"C:/Users/Anastasia/PycharmProjects/konfig2"
     save_file_path = os.path.join(save_directory, f"{package_name}.{package_version}.nupkg")
-    download_file(url, save_file_path)
 
-    nupkg_path = save_file_path
-    if not os.path.exists(nupkg_path):
-        print(f"{nupkg_path} не найден.")
-        return all_dependencies, package_details
+    # Скачиваем файл
+    downloaded_file_path = download_file(url, save_file_path)
+    if downloaded_file_path is None:  # Если файл не валиден
+        return all_dependencies
+
+    nupkg_path = downloaded_file_path
 
     try:
         with zipfile.ZipFile(nupkg_path, 'r') as zip_ref:
@@ -52,107 +65,98 @@ def get_dependencies(package_name, package_version, depth=0, max_depth=1, all_de
                     root = tree.getroot()
                     namespaces = {'ns': 'http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd'}
 
-                    # Получение версии и автора
-                    metadata = root.find("ns:metadata", namespaces)
-                    if metadata is not None:
-                        version = metadata.find("ns:version", namespaces).text if metadata.find("ns:version", namespaces) is not None else "Unknown"
-                        authors = metadata.find("ns:authors", namespaces).text if metadata.find("ns:authors", namespaces) is not None else "Unknown"
-                    else:
-                        version = "Unknown"
-                        authors = "Unknown"
-
-                    # Сохранение информации о пакете
-                    package_details[f"{package_name}.{package_version}"] = {
-                        "name": package_name,
-                        "version": version,
-                        "author": authors
-                    }
-
-                    # Парсинг зависимостей
                     dependencies_set = set()
+                    authors_set = set()
+
+                    # Получаем зависимости
                     for dependency in root.findall(".//ns:dependency", namespaces):
                         dep_id = dependency.get('id')
                         dep_version = dependency.get('version')
                         if dep_id and dep_version:
-                            dep_package = f"{dep_id}.{dep_version}"
+                            dep_package = f"{dep_id}.{dep_version}"  # Форматирование зависимости
                             dependencies_set.add(dep_package)
                             if dep_package not in all_dependencies:
-                                all_dependencies[dep_package] = set()
-                                get_dependencies(dep_id, dep_version, depth + 1, max_depth, all_dependencies, package_details)
-                    all_dependencies[f"{package_name}.{package_version}"] = dependencies_set
+                                all_dependencies[dep_package] = {'dependencies': set(), 'authors': set()}
+                                get_dependencies(dep_id, dep_version, depth + 1, max_depth, all_dependencies)
+
+                    # Получаем авторов
+                    authors = root.find(".//ns:authors", namespaces)
+                    if authors is not None and authors.text:
+                        authors_set.update(authors.text.split(','))
+
+                    # Сохраняем зависимости и авторов в словаре
+                    all_dependencies[f"{package_name}.{package_version}"] = {
+                        'dependencies': dependencies_set,
+                        'authors': authors_set
+                    }
+
     except Exception as e:
         print(f"Ошибка при обработке {package_name}.{package_version}: {e}")
 
-    return all_dependencies, package_details
+    return all_dependencies
 
-def build_plantuml_graph(dependencies, package_details):
-    graph = "@startuml\n"
-    graph += "skinparam linetype ortho\n"
-
-    for package_name_version, deps in dependencies.items():
-        details = package_details.get(package_name_version, {})
-        package_name = details.get("name", "Unknown")
-        package_author = details.get("author", "Unknown")
-        package_version = details.get("version", "Unknown")
-
-        # Создание узла пакета
-        graph += f"package \"{package_name} ({package_version})\" as {package_name_version} {{}}\n"
-
-        # Добавление заметки с автором
-        graph += f"note right of {package_name_version}\n"
-        graph += f"Author: {package_author}\n"
-        graph += f"Version: {package_version}\n"
-        graph += "end note\n"
-
-        # Добавление зависимостей
-        for dep in deps:
-            graph += f"{package_name_version} --> {dep}\n"
-
-    graph += "@enduml"
-    return graph
-
-def save_graph(graph_content, output_path):
-    with open(output_path, "w") as f:
-        f.write(graph_content)
-    print(f"Граф зависимостей сохранен в {output_path}")
+def print_authors(all_dependencies):
+    for package, info in all_dependencies.items():
+        authors = info.get('authors', set())
+        if authors:
+            print(f"Пакет: {package}")
+            print("Авторы:", ", ".join(authors))
+        else:
+            print(f"Пакет: {package} не имеет информации об авторах.")
 
 
-def generate_image(plantuml_path, input_path, output_path):
-    os.system(f"java -jar {plantuml_path} -tpng {input_path} -o .")
-    print(f"Изображение графа сохранено в {output_path}")
+def generate_puml_graph(all_dependencies, puml_path):
+    with open(puml_path, 'w') as file:
+        file.write("@startuml\n")
+
+        # Для отладки выводим зависимости
+        print(f"Dependencies data: {all_dependencies}")
+
+        for package, details in all_dependencies.items():
+            package_name, package_version = package.rsplit('.', 1)  # Разделяем имя пакета и его версию
+            authors = details.get('authors', set())
+            authors_str = ", ".join(authors) if authors else "unknown"
+
+            # Подписываем пакет его именем, версией и авторами
+            file.write(f'package "{package_name} {package_version}" as {package_name} {{\n')
+            file.write(f'{package_name} : Version: {package_version}\n')
+            file.write(f'{package_name} : Authors: {authors_str}\n')
+
+            for dep in details.get('dependencies', set()):
+                dep_name, dep_version = dep.rsplit('.', 1)  # Разделяем имя зависимости и ее версию
+                file.write(f'{package_name} --> {dep_name}\n')  # Связь с зависимостью
+
+            file.write('}\n')
+
+        file.write("@enduml\n")
 
 
-def read_config(tool):
-    with open(tool, "r", encoding="utf-8") as f:
-        config = toml.load(f)
-    return config
-
-def print_dependencies(dependencies):
-    print("Список зависимостей:")
-    for package, deps in dependencies.items():
-        print(f"{package}:")
-        for dep in deps:
-            print(f"  - {dep}")
-
+def generate_png_from_puml(puml_path, output_png_path, plantuml_path):
+    try:
+        subprocess.run(['java', '-jar', plantuml_path, puml_path, '-o', os.path.dirname(output_png_path)], check=True)
+        print(f"PNG график сохранен в {output_png_path}")
+    except subprocess.CalledProcessError as e:
+        print(f"Ошибка при генерации PNG: {e}")
 
 def main():
-    parser = argparse.ArgumentParser(description="Визуализация зависимостей .NET пакетов с использованием PlantUML.")
-    parser.add_argument("tool", help="Путь к конфигурационному файлу TOML")
-    args = parser.parse_args()
-    config = read_config(args.tool)
-    plantuml_path = config["visualization"]["plantuml_path"]
-    output_graph_path = config["output"]["graph_path"]
     package_name = "Newtonsoft.Json.Bson"
     package_version = "1.0.3"
-    print(f"Package name: {package_name}, Package version: {package_version}")
+    all_dependencies = get_dependencies(package_name, package_version)
+    print(all_dependencies)
 
-    all_dependencies, package_details = get_dependencies(package_name, package_version)
-    print_dependencies(all_dependencies)
+    # Печать авторов
+    print_authors(all_dependencies)
 
-    plantuml_graph = build_plantuml_graph(all_dependencies, package_details)
-    save_graph(plantuml_graph, output_graph_path)
-    generate_image(plantuml_path, output_graph_path, output_graph_path.replace(".puml", ".png"))
+    # Путь для сохранения PlantUML графика
+    puml_path = "graph_dependencies.puml"
+    output_png_path = "C://Users//Anastasia//PycharmProjects//konfig2//graph_dependencies.png"
+    plantuml_path = "C://Users//Anastasia//Downloads//plantuml-1.2024.8.jar"
 
+    # Генерация графа в формате PlantUML
+    generate_puml_graph(all_dependencies, puml_path)
+
+    # Генерация PNG из графа
+    generate_png_from_puml(puml_path, output_png_path, plantuml_path)
 
 if __name__ == "__main__":
     main()
