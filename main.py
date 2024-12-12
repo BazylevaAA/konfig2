@@ -117,14 +117,17 @@ def generate_puml_graph(all_dependencies, puml_path):
             authors = details.get('authors', set())
             authors_str = ", ".join(authors) if authors else "unknown"
 
-            # Подписываем пакет его именем, версией и авторами
+            # Создаем блок для пакета с версией
             file.write(f'package "{package_name} {package_version}" as {package_name} {{\n')
-            file.write(f'{package_name} : Version: {package_version}\n')
-            file.write(f'{package_name} : Authors: {authors_str}\n')
 
+            # Добавляем информацию о версии и авторах как примечание внутри пакета
+            file.write(f'    note right of {package_name} : Version: {package_version}\n')
+            file.write(f'    note right of {package_name} : Authors: {authors_str}\n')
+
+            # Добавляем связи с зависимостями (только имена зависимостей)
             for dep in details.get('dependencies', set()):
                 dep_name, dep_version = dep.rsplit('.', 1)  # Разделяем имя зависимости и ее версию
-                file.write(f'{package_name} --> {dep_name}\n')  # Связь с зависимостью
+                file.write(f'    {package_name} --> {dep_name}\n')  # Связь с зависимостью (без версий)
 
             file.write('}\n')
 
