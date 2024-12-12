@@ -1,6 +1,7 @@
 import os
 import subprocess
 import toml
+from graph_generator import get_package_dependencies, generate_complex_plantuml_script, save_plantuml_script
 
 
 def load_config(config_path):
@@ -11,41 +12,16 @@ def load_config(config_path):
     try:
         with open(config_path, "r") as file:
             config = toml.load(file)
+
+        # Проверка наличия необходимых параметров в конфигурации
+        required_keys = ["visualizer_path", "package_name", "output_path"]
+        missing_keys = [key for key in required_keys if key not in config]
+        if missing_keys:
+            raise RuntimeError(f"Отсутствуют обязательные параметры в конфигурации: {', '.join(missing_keys)}")
+
         return config
     except Exception as e:
         raise RuntimeError(f"Ошибка загрузки конфигурации: {e}")
-
-
-def generate_complex_plantuml_script(package_name, num_levels=3, max_dependencies_per_level=2):
-    """Генерация сложной структуры зависимостей с транзитивными связями."""
-    plantuml_script = "@startuml\n"
-    plantuml_script += f"package {package_name} {{\n"
-
-    # Начальная точка - корневой пакет
-    dependencies = [f"{package_name}_Dependency0"]
-    plantuml_script += f'"{package_name}" --> "{dependencies[0]}"\n'
-
-    # Генерация зависимостей по уровням
-    for level in range(1, num_levels + 1):
-        new_dependencies = []
-        for dependency in dependencies:
-            for i in range(1, max_dependencies_per_level + 1):
-                sub_dependency = f"{dependency}_Sub{i}"
-                plantuml_script += f'"{dependency}" --> "{sub_dependency}"\n'
-                new_dependencies.append(sub_dependency)
-        dependencies = new_dependencies
-
-    plantuml_script += "}\n@enduml"
-    return plantuml_script
-
-
-def save_plantuml_script(script, script_path):
-    """Сохраняет скрипт PlantUML в файл."""
-    try:
-        with open(script_path, "w") as file:
-            file.write(script)
-    except Exception as e:
-        raise RuntimeError(f"Ошибка сохранения PlantUML-скрипта: {e}")
 
 
 def generate_graph(plantuml_path, script_path, output_image_path):
@@ -67,28 +43,48 @@ def generate_graph(plantuml_path, script_path, output_image_path):
 def main():
     """Главная функция."""
     config_path = "config.toml"
-    config = load_config(config_path)
+    try:
+        config = load_config(config_path)
+    except RuntimeError as e:
+        print(e)
+        return
 
     plantuml_path = config.get("visualizer_path")
     package_name = config.get("package_name")
     output_image_path = config.get("output_path")
 
     if not all([plantuml_path, package_name, output_image_path]):
-        raise RuntimeError("Некорректный формат конфигурационного файла.")
+        print("Некорректный формат конфигурационного файла.")
+        return
 
-    script_path = "generate_img.puml"
+    # Проверка существования plantuml_path
+    if not os.path.exists(plantuml_path):
+        print(f"Ошибка: файл {plantuml_path} не найден.")
+        return
+
+    print("Получение зависимостей пакета...")
+    dependencies = get_package_dependencies(package_name)
+    if dependencies is None:
+        print("Не удалось получить зависимости.")
+        return
 
     print("Генерация графа зависимостей...")
-    plantuml_script = generate_complex_plantuml_script(
-        package_name, num_levels=3, max_dependencies_per_level=2
-    )
-    save_plantuml_script(plantuml_script, script_path)
+    plantuml_script = generate_complex_plantuml_script(package_name, dependencies)
 
-    print(f"Путь к PlantUML: {plantuml_path}")
-    print(f"Путь к скрипту: {script_path}")
-    print(f"Путь к изображению: {output_image_path}")
+    script_path = "generate_img.puml"  # Можно сделать путь динамическим
+    try:
+        save_plantuml_script(plantuml_script, script_path)
+    except RuntimeError as e:
+        print(f"Ошибка сохранения скрипта PlantUML: {e}")
+        return
 
-    generate_graph(plantuml_path, script_path, output_image_path)
+    print("Визуализация графа...")
+    try:
+        generate_graph(plantuml_path, script_path, output_image_path)
+    except RuntimeError as e:
+        print(f"Ошибка при генерации графа: {e}")
+        return
+
     print("Граф зависимостей успешно сгенерирован!")
 
 
