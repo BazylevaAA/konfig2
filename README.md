@@ -94,7 +94,7 @@ generate_png_from_puml("graph_dependencies.puml", "graph_dependencies.png", "pla
 
 #### Результат:
 - Создается файл `graph_dependencies.png` с визуализацией зависимостей.
-![img.png](img.png)
+![graph_dependencies.png](graph_dependencies.png)
 ---
 
 ## Результаты прогона тестов
@@ -102,7 +102,7 @@ generate_png_from_puml("graph_dependencies.puml", "graph_dependencies.png", "pla
 ```bash
 python -m unittest test.py
  ```
-![img_1.png](img_1.png)
+![tests.png](tests.png)
 ### Примечания:
 Все тесты проходят успешно, включая проверку загрузки конфигурации, генерации скриптов и графиков, а также работы с subprocess для создания изображений.
 
