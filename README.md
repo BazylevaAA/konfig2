@@ -94,7 +94,7 @@ generate_png_from_puml("graph_dependencies.puml", "graph_dependencies.png", "pla
 
 #### Результат:
 - Создается файл `graph_dependencies.png` с визуализацией зависимостей.
-![graph_dependencies.png](graph_dependencies.png)
+![graph.png](graph.png)
 ---
 
 ## Результаты прогона тестов
